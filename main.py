@@ -14,7 +14,6 @@ from kivymd.uix.label import MDLabel
 
 import PoseModule as pm
 
-Window.size = (350, 750)
 
 screen_helper = """
 ScreenManager:
