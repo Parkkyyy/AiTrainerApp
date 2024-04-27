@@ -1,6 +1,6 @@
 from kivymd.app import MDApp
 import numpy as np
-import cv2
+
 from kivymd.uix.button import MDRectangleFlatButton
 from kivymd.uix.toolbar import MDTopAppBar
 from kivy.graphics.texture import Texture
@@ -8,12 +8,17 @@ from kivy.uix.image import Image
 from kivy.clock import Clock
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivy.lang import Builder
-from kivy.core.window import Window
+# from kivy.core.window import Window
 from kivymd.uix.screen import MDScreen
 from kivymd.uix.label import MDLabel
+import mediapipe as mp
+import cv2
+import time
+import math
 
-import PoseModule as pm
 
+
+# Window.size = (350, 750)
 
 screen_helper = """
 ScreenManager:
@@ -50,8 +55,13 @@ ScreenManager:
                     on_press: app.on_item_click("2")
 
                 OneLineListItem:
-                    text: "Squats"
+                    text: "Pull-ups"
                     on_press: app.on_item_click("3")
+                
+                OneLineListItem:
+                    text: "Squats"
+                    on_press: app.on_item_click("4")
+
 
 
 <Item1Screen>:
@@ -63,17 +73,80 @@ ScreenManager:
 class MainScreen(MDScreen):
     pass
 
+class poseDetector():
+    def __init__(self, mode=False,complexity=1,  smooth=True,seg=False,smoothSeg=True,
+                 detection=0.5, track=0.5):
+        self.mode=mode
+        self.complexity=complexity
+        self.smooth=smooth
+        self.seg=seg
+        self.smoothSeg=smoothSeg
+        self.detection=detection
+        self.track=track
+
+        self.cap = cv2.VideoCapture(0)
+
+        self.mpDraw=mp.solutions.drawing_utils
+        self.mpPose=mp.solutions.pose
+        self.pose=self.mpPose.Pose(self.mode,self.complexity,self.smooth,self.seg,
+                                   self.smoothSeg,self.detection,self.track)
+
+    def findPose(self, img, draw=True):
+            imgRGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            self.results = self.pose.process(imgRGB)
+            if self.results.pose_landmarks:
+                if draw:
+                    self.mpDraw.draw_landmarks(img, self.results.pose_landmarks,
+                                               self.mpPose.POSE_CONNECTIONS)
+            return img
+
+    def findPosition(self, img, draw=True):
+            self.lmList = []
+            if self.results.pose_landmarks:
+                for id, lm in enumerate(self.results.pose_landmarks.landmark):
+                    h, w, c = img.shape
+                    # print(id, lm)
+                    cx, cy = int(lm.x * w), int(lm.y * h)
+                    self.lmList.append([id, cx, cy])
+                    if draw:
+                        cv2.circle(img, (cx, cy), 5, (255, 0, 0), cv2.FILLED)
+            return self.lmList
+
+    def findAngle(self, img, p1, p2, p3, draw=True):
+        # Get the landmarks
+        x1, y1 = self.lmList[p1][1:]
+        x2, y2 = self.lmList[p2][1:]
+        x3, y3 = self.lmList[p3][1:]
+        # Calculate the Angle
+        angle = math.degrees(math.atan2(y3 - y2, x3 - x2) -
+                             math.atan2(y1 - y2, x1 - x2))
+        if angle < 0:
+            angle += 360
+        # print(angle)
+        # Draw
+        if draw:
+            cv2.line(img, (x1, y1), (x2, y2), (255, 255, 255), 3)
+            cv2.line(img, (x3, y3), (x2, y2), (255, 255, 255), 3)
+            cv2.circle(img, (x1, y1), 10, (0, 0, 255), cv2.FILLED)
+            cv2.circle(img, (x1, y1), 15, (0, 0, 255), 2)
+            cv2.circle(img, (x2, y2), 10, (0, 0, 255), cv2.FILLED)
+            cv2.circle(img, (x2, y2), 15, (0, 0, 255), 2)
+            cv2.circle(img, (x3, y3), 10, (0, 0, 255), cv2.FILLED)
+            cv2.circle(img, (x3, y3), 15, (0, 0, 255), 2)
+            cv2.putText(img, str(int(angle)), (x2 - 50, y2 + 50),
+                        cv2.FONT_HERSHEY_PLAIN, 2, (0, 0, 255), 2)
+        return angle
+
 
 class Item1Screen(MDScreen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.pose_detector = pm.poseDetector()
+        self.pose_detector = poseDetector()
         self.detection_started = False
         self.image_index=0
         self.count=0
         self.dir=0
         self.cap = cv2.VideoCapture(0)
-
 
         # Create MDToolbar
         layout = MDBoxLayout(orientation="vertical")
@@ -117,7 +190,7 @@ class Item1Screen(MDScreen):
         #
         # Create Image
         self.image = Image(source="",
-                           height="500dp",
+                           height="400dp",
                            size_hint=(1, None),
                            pos_hint={"center_x": 0.5},
                            )  # Replace "your_image_path.png" with your image path
@@ -140,7 +213,6 @@ class Item1Screen(MDScreen):
         layout.add_widget(self.image)
         Clock.schedule_interval(self.update_image, 1.0 / 30.0)
         layout.add_widget(self.label1)
-
         layout.add_widget(self.button_layout)
         layout.add_widget(self.label2)
 
@@ -259,11 +331,19 @@ class DemoApp(MDApp):
         elif item_text == "2":
             item1_screen = Item1Screen()
             item1_screen.change_label_text("Push-ups")
+            item1_screen.change_param(12, 14, 16, 70, 160)
             self.root.clear_widgets()
             self.root.add_widget(item1_screen)
         elif item_text == "3":
             item1_screen = Item1Screen()
+            item1_screen.change_label_text("Pull-Ups")
+            item1_screen.change_param(12, 14, 16, 200, 290)
+            self.root.clear_widgets()
+            self.root.add_widget(item1_screen)
+        elif item_text == "4":
+            item1_screen = Item1Screen()
             item1_screen.change_label_text("Squats")
+            item1_screen.change_param(23,25,27,90,170)
             self.root.clear_widgets()
             self.root.add_widget(item1_screen)
 
